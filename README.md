@@ -115,6 +115,59 @@ Use `0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE` for native ETH — never WETH. 
 
 ---
 
+## Self-Hosting
+
+### Requirements
+
+- Node.js v20+
+- An EVM RPC URL for each chain you want to support (e.g. from [Alchemy](https://www.alchemy.com), [Infura](https://infura.io), or [Tenderly](https://tenderly.co))
+
+### Setup
+
+```bash
+git clone https://github.com/ashachaf/carbon-mcp-server.git
+cd carbon-mcp-server
+npm install
+```
+
+Create a `.env` file — **never commit this file**:
+
+```
+PORT=3000
+RPC_URL_ETHEREUM=
+CHAIN_ID_ETHEREUM=1
+RPC_URL_SEI=
+RPC_URL_CELO=
+RPC_URL_TAC=
+```
+
+Run the server:
+
+```bash
+npx ts-node src/index.ts
+```
+
+Or with PM2 for production:
+
+```bash
+pm2 start src/index.ts --name carbon-mcp-server --interpreter ts-node
+```
+
+Update your Claude Desktop config to point to your local server:
+
+```json
+{
+  "mcpServers": {
+    "carbon-defi": {
+      "command": "npx",
+      "args": ["mcp-remote", "http://localhost:3000/mcp"]
+    }
+  }
+}
+```
+
+---
+
 ## Stack
 
 - Node.js v20, TypeScript, ts-node

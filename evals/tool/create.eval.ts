@@ -8,7 +8,7 @@
 
 import { EvalSuite, assert, assertEq, assertApprox, assertHexAddress, assertHexData, assertDefined } from "../utils";
 
-const SERVER = process.env.EVAL_SERVER_URL || "https://carbon-mcp.duckdns.org";
+const SERVER = process.env.EVAL_SERVER_URL || "http://localhost:3000";
 const WALLET = "0x423617B2970Dd2Fc66F646d18B8E7f89731405e6";
 const CHAIN = "ethereum";
 const ETH = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
@@ -16,25 +16,12 @@ const USDC = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 const MARKET_PRICE = 2000;
 
 async function callTool(toolName: string, params: object): Promise<any> {
-  const res = await fetch(`${SERVER}/mcp`, {
+  const res = await fetch(`${SERVER}/tools/${toolName.replace(/^carbon_/, "")}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json",
-      "Accept": "application/json, text/event-stream" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "tools/call",
-      params: { name: toolName, arguments: params },
-    }),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
   });
-  const raw = await res.text();
-  // Parse SSE format: find "data: {...}" line
-  const dataLine = raw.split("\n").find((l: string) => l.startsWith("data: "));
-  if (!dataLine) throw new Error(`No data line in SSE response: ${raw.substring(0, 200)}`);
-  const json = JSON.parse(dataLine.slice(6)) as any;
-  const text = json?.result?.content?.[0]?.text;
-  if (!text) throw new Error(`No content in response: ${JSON.stringify(json)}`);
-  return JSON.parse(text);
+  return await res.json() as any;
 }
 
 function assertValidTx(result: any): void {

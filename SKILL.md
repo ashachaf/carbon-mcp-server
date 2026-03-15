@@ -65,7 +65,21 @@ Restart Claude Desktop after updating the config.
 | `carbon_resume_strategy` | Restore prices to reactivate a paused strategy |
 | `carbon_delete_strategy` | Permanently close a strategy and return all funds |
 
-## Supported Chains
+## Choosing the Right Strategy
+
+Use this guide to match user intent to the correct tool:
+
+| User says | Correct tool |
+|---|---|
+| "buy at exactly X price" | `carbon_create_limit_order` (buy, single price) |
+| "sell at exactly X price" | `carbon_create_limit_order` (sell, single price) |
+| "scale in as price drops", "DCA into", "buy gradually between X and Y" | `carbon_create_range_order` (buy, price range) |
+| "scale out as price rises", "sell gradually between X and Y" | `carbon_create_range_order` (sell, price range) |
+| "buy low sell high forever", "recurring", "grid" | `carbon_create_recurring_strategy` |
+| "provide liquidity", "earn fees", "concentrated liquidity" | `carbon_create_concentrated_strategy` |
+| "full range liquidity", "widest range" | `carbon_create_full_range_strategy` |
+
+A range order is a **single transaction** that executes gradually as price moves through the range — it is the correct tool for "scale in" or "DCA" requests. Do not ask how many orders to split across.
 
 Ethereum, Sei, Celo, TAC
 

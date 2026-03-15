@@ -26,6 +26,20 @@ Carbon DeFi is a fully on-chain maker trading protocol. Agents create price stra
 - Celo
 - TAC
 
+## Choosing the Right Strategy
+
+| User says | Correct tool |
+|---|---|
+| "buy at exactly X price" | `carbon_create_limit_order` (buy) |
+| "sell at exactly X price" | `carbon_create_limit_order` (sell) |
+| "scale in as price drops", "DCA into", "buy gradually" | `carbon_create_range_order` (buy) |
+| "scale out as price rises", "sell gradually" | `carbon_create_range_order` (sell) |
+| "buy low sell high forever", "recurring", "grid" | `carbon_create_recurring_strategy` |
+| "provide liquidity", "earn fees", "concentrated liquidity" | `carbon_create_concentrated_strategy` |
+| "full range liquidity", "widest range" | `carbon_create_full_range_strategy` |
+
+A range order executes gradually as price moves through the range — it is a single transaction, not multiple orders. Never ask how many orders to split across for a scale-in or DCA request.
+
 ## Strategy Types
 
 | Type | Description |

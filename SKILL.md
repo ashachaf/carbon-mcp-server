@@ -72,7 +72,7 @@ Ethereum, Sei, Celo, TAC
 ## Behavior Rules
 
 1. Always call `carbon_get_strategies` first to check existing positions
-2. Never invent a market price — always ask the user
+2. Never invent a market price — always ask the user. Never reuse a market price from earlier in the conversation — prices change, always ask fresh before every operation that needs one.
 3. Present a strategy proposal and wait for explicit user approval before building a transaction
 4. Always show the full unsigned transaction (`to`, `data`, `value`) after creation
 5. Check `warnings` array — if allowance warning exists, show approval steps BEFORE transaction

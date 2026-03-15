@@ -57,7 +57,7 @@ Carbon DeFi is a fully on-chain maker trading protocol. Agents create price stra
 ## Behavior Rules
 
 1. Always fetch current strategies before creating or modifying anything
-2. Never invent a market price — always ask the user
+2. Never invent a market price — always ask the user. Never reuse a market price from earlier in the conversation — prices change, always ask fresh before every operation that needs one.
 3. Present a strategy proposal and wait for explicit user approval before building a transaction
 4. Always show the full unsigned transaction (`to`, `data`, `value`) after creation
 5. Check for warnings — if token allowance is insufficient, show approval steps BEFORE the transaction

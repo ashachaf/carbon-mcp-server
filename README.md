@@ -1,14 +1,31 @@
 # Carbon DeFi MCP Server
 
-An MCP server that lets AI agents create and manage on-chain maker trading strategies on [Carbon DeFi](https://carbon.defi.org). The server translates agent intent into unsigned transactions — the user signs and broadcasts.
+An MCP server that lets AI agents create and manage on-chain maker trading strategies on Carbon DeFi. The server translates agent intent into unsigned transactions — the user signs and broadcasts.
 
 **Maker-first.** Agents set prices upfront. Strategies execute on-chain automatically with zero gas on fills. No agent needs to stay online.
 
 ---
 
+## Agent Integration
+
+Install via Skills CLI (works with Claude Desktop, Cursor, and any agent that supports the Agent Skills standard):
+
+```bash
+npx skills add ashachaf/carbon-mcp-server
+```
+
+| File | Description |
+|---|---|
+| [`SKILL.md`](./SKILL.md) | Agent Skills standard — installable via `npx skills add` |
+| [`AGENTS.md`](./AGENTS.md) | Full agent-agnostic behavior rules and trading conventions |
+| [`CLAUDE.md`](./CLAUDE.md) | Claude / MCP specific setup and tool list |
+| [`OPENAI.md`](./OPENAI.md) | ChatGPT / OpenAI function calling setup |
+
+---
+
 ## Quick Start
 
-Add to your `claude_desktop_config.json`:
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
@@ -21,7 +38,7 @@ Add to your `claude_desktop_config.json`:
 }
 ```
 
-Config file location on Mac: `~/Library/Application Support/Claude/claude_desktop_config.json`
+Restart Claude Desktop after updating the config.
 
 ---
 
@@ -62,6 +79,7 @@ Config file location on Mac: `~/Library/Application Support/Claude/claude_deskto
 | `carbon_create_range_order` | One-time buy or sell that executes gradually across a price range. Good for DCA. |
 | `carbon_create_recurring_strategy` | Linked buy+sell strategy that repeats indefinitely. Buy low, sell high, zero gas on fills. |
 | `carbon_create_concentrated_strategy` | Two-sided concentrated liquidity with a defined spread. Earns fees on both sides. |
+| `carbon_create_full_range_strategy` | Two-sided liquidity across the widest possible price range (up to 1000x from market price). |
 
 ### Manage
 
@@ -102,6 +120,18 @@ All prices are expressed as **quote token per 1 base token**.
 
 Use `0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE` for native ETH — never WETH. ETH never requires an approval.
 
+### Full Range Strategy
+
+The full range strategy calculates the widest possible price range automatically:
+
+```
+factor = min(market_price / protocol_min, protocol_max / market_price, 1000)
+price_low  = market_price / factor
+price_high = market_price * factor
+```
+
+The user provides a budget for one anchor side (`buy` or `sell`) and the other is auto-calculated.
+
 ---
 
 ## Contract Addresses
@@ -120,7 +150,7 @@ Use `0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE` for native ETH — never WETH. 
 ### Requirements
 
 - Node.js v20+
-- An EVM RPC URL for each chain you want to support (e.g. from [Alchemy](https://www.alchemy.com), [Infura](https://infura.io), or [Tenderly](https://tenderly.co))
+- An EVM RPC URL for each chain you want to support
 
 ### Setup
 

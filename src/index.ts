@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { Toolkit, MarginalPriceOptions, calculateOverlappingPrices } from "@bancor/carbon-sdk/strategy-management";
+import { Toolkit, MarginalPriceOptions, calculateOverlappingPrices, calculateOverlappingBuyBudget, calculateOverlappingSellBudget, getMinMaxPricesByDecimals } from "@bancor/carbon-sdk/strategy-management";
 import { ChainCache, initSyncedCache } from "@bancor/carbon-sdk/chain-cache";
 import { ContractsApi } from "@bancor/carbon-sdk/contracts-api";
 import { JsonRpcProvider, Contract, parseUnits } from "ethers";
@@ -115,7 +115,7 @@ function err(message: string) {
 // ─── Server ───────────────────────────────────────────────────────────────────
 
 function createServer() {
-  const server = new McpServer({ name: "Carbon DeFi", version: "0.2.0" });
+  const server = new McpServer({ name: "Carbon DeFi", version: "0.3.0" });
 
   // ── Get Strategies ──────────────────────────────────────────────────────────
 
@@ -373,6 +373,113 @@ function createServer() {
             price_high: params.price_high,
             spread_percentage: params.spread_percentage,
             buy_budget: params.buy_budget,
+            sell_budget: sellBudget,
+            market_price: params.market_price,
+          },
+          unsigned_transaction: formatTx(tx),
+        });
+      } catch (e: any) {
+        return err(e.message);
+      }
+    }
+  );
+
+  // ── Create Full Range Strategy ─────────────────────────────────────────────
+
+  server.tool(
+    "carbon_create_full_range_strategy",
+    "Create a two-sided full range concentrated liquidity strategy on Carbon DeFi. Automatically sets the widest possible price range (capped at 1000x from market price). User provides an anchor budget on one side — the other side is calculated automatically. anchor='buy' means user provides quote token budget; anchor='sell' means user provides base token budget.",
+    {
+      wallet_address: z.string(),
+      chain: z.enum(CHAIN_ENUM),
+      base_token: z.string().describe("Base token address. Prices = quote per 1 base."),
+      quote_token: z.string().describe("Quote token address. Prices = quote per 1 base."),
+      spread_percentage: z.number().describe("Spread in percent, e.g. 1 for 1%"),
+      anchor: z.enum(["buy", "sell"]).describe("Which side the user is funding. buy = provide quote token budget; sell = provide base token budget."),
+      budget: z.number().describe("Budget for the anchor side. Quote token if anchor=buy, base token if anchor=sell."),
+      market_price: z.number().describe("Current market price in quote per base. Required to calculate full range and marginal prices."),
+    },
+    async (params) => {
+      const warnings: string[] = [];
+      const checkToken = params.anchor === "buy" ? params.quote_token : params.base_token;
+      const aw = await checkAllowance(params.chain, checkToken, params.wallet_address, params.budget);
+      if (aw) warnings.push(aw);
+      try {
+        const sdk = await getSDK(params.chain);
+        const config = CHAIN_CONFIG[params.chain];
+        const provider = new JsonRpcProvider(config.rpcUrl, config.chainId);
+
+        // Fetch token decimals
+        const baseTokenContract = new Contract(
+          params.base_token === ETH_ADDRESS ? "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2" : params.base_token,
+          ERC20_ABI, provider
+        );
+        const quoteTokenContract = new Contract(
+          params.quote_token === ETH_ADDRESS ? "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2" : params.quote_token,
+          ERC20_ABI, provider
+        );
+        const baseDecimals: number = params.base_token === ETH_ADDRESS ? 18 :
+          Number(await baseTokenContract.decimals());
+        const quoteDecimals: number = params.quote_token === ETH_ADDRESS ? 18 :
+          Number(await quoteTokenContract.decimals());
+
+        // Calculate full range prices using app logic: factor = min(market/minBuy, maxSell/market, 1000)
+        const { minBuyPrice, maxSellPrice } = getMinMaxPricesByDecimals(baseDecimals, quoteDecimals);
+        const price = params.market_price;
+        const factor = Math.min(
+          price / parseFloat(minBuyPrice),
+          parseFloat(maxSellPrice) / price,
+          1000
+        );
+        const min = (price / factor).toString();
+        const max = (price * factor).toString();
+
+        // Calculate overlapping prices (marginals)
+        const prices = calculateOverlappingPrices(
+          min, max,
+          params.market_price.toString(),
+          params.spread_percentage.toString()
+        );
+
+        // Calculate the non-anchor budget using standalone SDK functions
+        let buyBudget: string;
+        let sellBudget: string;
+        if (params.anchor === "buy") {
+          buyBudget = params.budget.toString();
+          sellBudget = calculateOverlappingSellBudget(
+            baseDecimals, quoteDecimals,
+            min, max,
+            params.market_price.toString(),
+            params.spread_percentage.toString(),
+            buyBudget
+          );
+        } else {
+          sellBudget = params.budget.toString();
+          buyBudget = calculateOverlappingBuyBudget(
+            baseDecimals, quoteDecimals,
+            min, max,
+            params.market_price.toString(),
+            params.spread_percentage.toString(),
+            sellBudget
+          );
+        }
+
+        const tx = await sdk.createBuySellStrategy(
+          params.base_token, params.quote_token,
+          prices.buyPriceLow, prices.buyPriceMarginal, prices.buyPriceHigh, buyBudget,
+          prices.sellPriceLow, prices.sellPriceMarginal, prices.sellPriceHigh, sellBudget
+        );
+
+        return ok({
+          warnings,
+          strategy_preview: {
+            type: "full_range",
+            chain: params.chain,
+            price_low: min,
+            price_high: max,
+            factor: factor.toFixed(2),
+            spread_percentage: params.spread_percentage,
+            buy_budget: buyBudget,
             sell_budget: sellBudget,
             market_price: params.market_price,
           },
@@ -743,7 +850,7 @@ const PORT = parseInt(process.env.PORT || "3000");
 
 const INFO = {
   name: "Carbon DeFi MCP Server",
-  version: "0.2.0",
+  version: "0.3.0",
   description: "MCP server for creating and managing on-chain maker trading strategies on Carbon DeFi. Returns unsigned transactions - the user signs and broadcasts. Zero gas on fills. Maker-first.",
   endpoint: "https://carbon-mcp.duckdns.org/mcp",
   supported_chains: ["ethereum", "sei", "celo", "tac"],
@@ -775,6 +882,10 @@ const INFO = {
     {
       name: "carbon_create_concentrated_strategy",
       description: "Create a two-sided concentrated liquidity strategy with a defined spread. Earns fees on both sides.",
+    },
+    {
+      name: "carbon_create_full_range_strategy",
+      description: "Create a two-sided full range concentrated liquidity strategy covering the entire possible price range.",
     },
     {
       name: "carbon_reprice_strategy",
@@ -815,7 +926,7 @@ const httpServer = http.createServer(async (req, res) => {
     await transport.handleRequest(req, res);
   } else if (req.url === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "ok", server: "Carbon DeFi MCP Server", version: "0.2.0", tools: 12 }));
+    res.end(JSON.stringify({ status: "ok", server: "Carbon DeFi MCP Server", version: "0.3.0", tools: 13 }));
   } else if (req.url === "/info") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(INFO, null, 2));
@@ -826,5 +937,5 @@ const httpServer = http.createServer(async (req, res) => {
 });
 
 httpServer.listen(PORT, "0.0.0.0", () => {
-  console.log(`Carbon DeFi MCP Server v0.2.0 running on port ${PORT}`);
+  console.log(`Carbon DeFi MCP Server v0.3.0 running on port ${PORT}`);
 });

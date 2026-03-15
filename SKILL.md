@@ -55,12 +55,12 @@ Restart Claude Desktop after updating the config.
 | `carbon_create_limit_order` | One-time buy or sell at exact price |
 | `carbon_create_range_order` | One-time buy or sell across a price range. Good for DCA. |
 | `carbon_create_recurring_strategy` | Looping buy+sell strategy, zero gas on fills |
-| `carbon_create_concentrated_strategy` | Two-sided liquidity with a defined spread |
+| `carbon_create_concentrated_strategy` | Two-sided liquidity with a defined spread. User provides budget for one anchor side (buy=USDC, sell=ETH), the other is auto-calculated. |
 | `carbon_create_full_range_strategy` | Two-sided liquidity across the widest possible range (up to 1000x from market price). User provides budget for one anchor side, the other is auto-calculated. |
 | `carbon_reprice_strategy` | Update price ranges of an existing strategy |
 | `carbon_edit_strategy` | Update prices and budgets together in one transaction |
-| `carbon_deposit_budget` | Add funds to an existing strategy |
-| `carbon_withdraw_budget` | Remove funds without closing the strategy |
+| `carbon_deposit_budget` | Add funds to an existing strategy. For concentrated/full range strategies use anchor+budget_increase+market_price+spread_percentage to auto-recalculate the other side. |
+| `carbon_withdraw_budget` | Remove funds without closing the strategy. For concentrated/full range strategies use anchor+budget_decrease+market_price+spread_percentage to auto-recalculate the other side. |
 | `carbon_pause_strategy` | Pause a strategy — prices zeroed, funds stay |
 | `carbon_resume_strategy` | Restore prices to reactivate a paused strategy |
 | `carbon_delete_strategy` | Permanently close a strategy and return all funds |

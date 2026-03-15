@@ -328,7 +328,7 @@ function createServer() {
 
   server.tool(
     "carbon_create_concentrated_strategy",
-    "Create a two-sided concentrated liquidity strategy on Carbon DeFi with a defined spread. Earn fees on both sides.",
+    "Create a two-sided concentrated liquidity strategy on Carbon DeFi with a defined spread. Earn fees on both sides. User provides a budget for one anchor side — the other is auto-calculated. anchor='buy' means user provides quote token budget (e.g. USDC); anchor='sell' means user provides base token budget (e.g. ETH).",
     {
       wallet_address: z.string(),
       chain: z.enum(CHAIN_ENUM),
@@ -337,31 +337,48 @@ function createServer() {
       price_low: z.number(),
       price_high: z.number(),
       spread_percentage: z.number().describe("Spread in percent, e.g. 1 for 1%"),
-      buy_budget: z.number().describe("Budget in quote token"),
-      market_price: z.number().describe("Current market price - required for concentrated strategy"),
+      anchor: z.enum(["buy", "sell"]).describe("Which side the user is funding. buy = provide quote token budget; sell = provide base token budget."),
+      budget: z.number().describe("Budget for the anchor side. Quote token if anchor=buy, base token if anchor=sell."),
+      market_price: z.number().describe("Current market price in quote per base - required for concentrated strategy"),
     },
     async (params) => {
       if (params.price_low >= params.price_high) return err("price_low must be less than price_high");
       if (params.market_price < params.price_low || params.market_price > params.price_high)
         return err(`Market price (${params.market_price}) must be within range [${params.price_low}, ${params.price_high}].`);
       const warnings: string[] = [];
-      const aw = await checkAllowance(params.chain, params.quote_token, params.wallet_address, params.buy_budget);
+      const checkToken = params.anchor === "buy" ? params.quote_token : params.base_token;
+      const aw = await checkAllowance(params.chain, checkToken, params.wallet_address, params.budget);
       if (aw) warnings.push(aw);
       try {
         const sdk = await getSDK(params.chain);
-        const sellBudget = await sdk.calculateOverlappingStrategySellBudget(
-          params.base_token, params.quote_token,
-          params.price_low.toString(), params.price_high.toString(),
-          params.market_price.toString(), params.spread_percentage.toString(),
-          params.buy_budget.toString()
-        );
-        const overlappingPrices = calculateOverlappingPrices(
-          params.price_low.toString(), params.price_high.toString(),
-          params.market_price.toString(), params.spread_percentage.toString()
-        );
+        const config = CHAIN_CONFIG[params.chain];
+        const provider = new JsonRpcProvider(config.rpcUrl, config.chainId);
+
+        // Fetch token decimals
+        const baseDecimals: number = params.base_token === ETH_ADDRESS ? 18 :
+          Number(await new Contract(params.base_token, ERC20_ABI, provider).decimals());
+        const quoteDecimals: number = params.quote_token === ETH_ADDRESS ? 18 :
+          Number(await new Contract(params.quote_token, ERC20_ABI, provider).decimals());
+
+        const min = params.price_low.toString();
+        const max = params.price_high.toString();
+        const market = params.market_price.toString();
+        const spread = params.spread_percentage.toString();
+
+        let buyBudget: string;
+        let sellBudget: string;
+        if (params.anchor === "buy") {
+          buyBudget = params.budget.toString();
+          sellBudget = calculateOverlappingSellBudget(baseDecimals, quoteDecimals, min, max, market, spread, buyBudget);
+        } else {
+          sellBudget = params.budget.toString();
+          buyBudget = calculateOverlappingBuyBudget(baseDecimals, quoteDecimals, min, max, market, spread, sellBudget);
+        }
+
+        const overlappingPrices = calculateOverlappingPrices(min, max, market, spread);
         const tx = await sdk.createBuySellStrategy(
           params.base_token, params.quote_token,
-          overlappingPrices.buyPriceLow, overlappingPrices.buyPriceMarginal, overlappingPrices.buyPriceHigh, params.buy_budget.toString(),
+          overlappingPrices.buyPriceLow, overlappingPrices.buyPriceMarginal, overlappingPrices.buyPriceHigh, buyBudget,
           overlappingPrices.sellPriceLow, overlappingPrices.sellPriceMarginal, overlappingPrices.sellPriceHigh, sellBudget
         );
         return ok({
@@ -372,7 +389,8 @@ function createServer() {
             price_low: params.price_low,
             price_high: params.price_high,
             spread_percentage: params.spread_percentage,
-            buy_budget: params.buy_budget,
+            anchor: params.anchor,
+            buy_budget: buyBudget,
             sell_budget: sellBudget,
             market_price: params.market_price,
           },
@@ -599,37 +617,75 @@ function createServer() {
 
   server.tool(
     "carbon_deposit_budget",
-    "Add funds to an existing Carbon DeFi strategy. Amounts are incremental - the value provided is added on top of the current budget.",
+    "Add funds to an existing Carbon DeFi strategy. For simple strategies: provide buy_budget_increase and/or sell_budget_increase as deltas. For concentrated or full range strategies: provide anchor ('buy' or 'sell'), budget_increase for the anchor side, market_price, and spread_percentage — the other side will be recalculated automatically to maintain correct ratio.",
     {
       wallet_address: z.string(),
       chain: z.enum(CHAIN_ENUM),
       strategy_id: z.string(),
-      buy_budget_increase: z.number().optional().describe("Amount to add to buy budget, in quote token"),
-      sell_budget_increase: z.number().optional().describe("Amount to add to sell budget, in base token"),
+      buy_budget_increase: z.number().optional().describe("Amount to add to buy budget, in quote token. For simple strategies only."),
+      sell_budget_increase: z.number().optional().describe("Amount to add to sell budget, in base token. For simple strategies only."),
+      anchor: z.enum(["buy", "sell"]).optional().describe("For concentrated/full range strategies: which side to anchor the deposit on."),
+      budget_increase: z.number().optional().describe("For concentrated/full range strategies: amount to deposit on the anchor side."),
+      market_price: z.number().optional().describe("Required for concentrated/full range strategies to recalculate the other side."),
+      spread_percentage: z.number().optional().describe("Required for concentrated/full range strategies."),
     },
     async (params) => {
-      if (!params.buy_budget_increase && !params.sell_budget_increase)
-        return err("Provide at least one of buy_budget_increase or sell_budget_increase");
+      const isOverlapping = params.anchor && params.budget_increase !== undefined && params.market_price && params.spread_percentage !== undefined;
+      if (!isOverlapping && !params.buy_budget_increase && !params.sell_budget_increase)
+        return err("Provide at least one of buy_budget_increase or sell_budget_increase, or use anchor+budget_increase+market_price+spread_percentage for concentrated strategies");
       try {
         const sdk = await getSDK(params.chain);
         const strategy = await sdk.getStrategyById(params.strategy_id);
         const currentBuy = parseFloat(strategy.buyBudget || "0");
         const currentSell = parseFloat(strategy.sellBudget || "0");
         const warnings: string[] = [];
-        if (params.buy_budget_increase) {
-          const aw = await checkAllowance(params.chain, strategy.quoteToken, params.wallet_address, params.buy_budget_increase);
-          if (aw) warnings.push(aw);
+
+        let newBuyBudget: string | undefined;
+        let newSellBudget: string | undefined;
+
+        if (isOverlapping) {
+          const config = CHAIN_CONFIG[params.chain];
+          const provider = new JsonRpcProvider(config.rpcUrl, config.chainId);
+          const baseDecimals: number = strategy.baseToken === ETH_ADDRESS ? 18 :
+            Number(await new Contract(strategy.baseToken, ERC20_ABI, provider).decimals());
+          const quoteDecimals: number = strategy.quoteToken === ETH_ADDRESS ? 18 :
+            Number(await new Contract(strategy.quoteToken, ERC20_ABI, provider).decimals());
+          const min = strategy.buyPriceLow;
+          const max = strategy.sellPriceHigh;
+          const market = params.market_price!.toString();
+          const spread = params.spread_percentage!.toString();
+
+          if (params.anchor === "buy") {
+            const anchorBudget = (currentBuy + params.budget_increase!).toString();
+            const calcSell = calculateOverlappingSellBudget(baseDecimals, quoteDecimals, min, max, market, spread, anchorBudget);
+            newBuyBudget = anchorBudget;
+            newSellBudget = calcSell;
+            const aw = await checkAllowance(params.chain, strategy.quoteToken, params.wallet_address, params.budget_increase!);
+            if (aw) warnings.push(aw);
+          } else {
+            const anchorBudget = (currentSell + params.budget_increase!).toString();
+            const calcBuy = calculateOverlappingBuyBudget(baseDecimals, quoteDecimals, min, max, market, spread, anchorBudget);
+            newSellBudget = anchorBudget;
+            newBuyBudget = calcBuy;
+            const aw = await checkAllowance(params.chain, strategy.baseToken, params.wallet_address, params.budget_increase!);
+            if (aw) warnings.push(aw);
+          }
+        } else {
+          if (params.buy_budget_increase) {
+            newBuyBudget = (currentBuy + params.buy_budget_increase).toString();
+            const aw = await checkAllowance(params.chain, strategy.quoteToken, params.wallet_address, params.buy_budget_increase);
+            if (aw) warnings.push(aw);
+          }
+          if (params.sell_budget_increase) {
+            newSellBudget = (currentSell + params.sell_budget_increase).toString();
+            const aw = await checkAllowance(params.chain, strategy.baseToken, params.wallet_address, params.sell_budget_increase);
+            if (aw) warnings.push(aw);
+          }
         }
-        if (params.sell_budget_increase) {
-          const aw = await checkAllowance(params.chain, strategy.baseToken, params.wallet_address, params.sell_budget_increase);
-          if (aw) warnings.push(aw);
-        }
+
         const tx = await sdk.updateStrategy(
           params.strategy_id, strategy.encoded,
-          {
-            buyBudget: params.buy_budget_increase ? (currentBuy + params.buy_budget_increase).toString() : undefined,
-            sellBudget: params.sell_budget_increase ? (currentSell + params.sell_budget_increase).toString() : undefined,
-          },
+          { buyBudget: newBuyBudget, sellBudget: newSellBudget },
           MarginalPriceOptions.maintain,
           MarginalPriceOptions.maintain
         );
@@ -644,32 +700,72 @@ function createServer() {
 
   server.tool(
     "carbon_withdraw_budget",
-    "Withdraw funds from an existing Carbon DeFi strategy without closing it. Amounts are decremental - the value provided is subtracted from the current budget.",
+    "Withdraw funds from an existing Carbon DeFi strategy without closing it. For simple strategies: provide buy_budget_decrease and/or sell_budget_decrease as deltas. For concentrated or full range strategies: provide anchor ('buy' or 'sell'), budget_decrease for the anchor side, market_price, and spread_percentage — the other side will be recalculated automatically to maintain correct ratio.",
     {
       wallet_address: z.string(),
       chain: z.enum(CHAIN_ENUM),
       strategy_id: z.string(),
-      buy_budget_decrease: z.number().optional().describe("Amount to remove from buy budget, in quote token"),
-      sell_budget_decrease: z.number().optional().describe("Amount to remove from sell budget, in base token"),
+      buy_budget_decrease: z.number().optional().describe("Amount to remove from buy budget, in quote token. For simple strategies only."),
+      sell_budget_decrease: z.number().optional().describe("Amount to remove from sell budget, in base token. For simple strategies only."),
+      anchor: z.enum(["buy", "sell"]).optional().describe("For concentrated/full range strategies: which side to anchor the withdrawal on."),
+      budget_decrease: z.number().optional().describe("For concentrated/full range strategies: amount to withdraw from the anchor side."),
+      market_price: z.number().optional().describe("Required for concentrated/full range strategies to recalculate the other side."),
+      spread_percentage: z.number().optional().describe("Required for concentrated/full range strategies."),
     },
     async (params) => {
-      if (!params.buy_budget_decrease && !params.sell_budget_decrease)
-        return err("Provide at least one of buy_budget_decrease or sell_budget_decrease");
+      const isOverlapping = params.anchor && params.budget_decrease !== undefined && params.market_price && params.spread_percentage !== undefined;
+      if (!isOverlapping && !params.buy_budget_decrease && !params.sell_budget_decrease)
+        return err("Provide at least one of buy_budget_decrease or sell_budget_decrease, or use anchor+budget_decrease+market_price+spread_percentage for concentrated strategies");
       try {
         const sdk = await getSDK(params.chain);
         const strategy = await sdk.getStrategyById(params.strategy_id);
         const currentBuy = parseFloat(strategy.buyBudget || "0");
         const currentSell = parseFloat(strategy.sellBudget || "0");
-        if (params.buy_budget_decrease && params.buy_budget_decrease > currentBuy)
-          return err(`Cannot withdraw ${params.buy_budget_decrease} - current buy budget is only ${currentBuy}`);
-        if (params.sell_budget_decrease && params.sell_budget_decrease > currentSell)
-          return err(`Cannot withdraw ${params.sell_budget_decrease} - current sell budget is only ${currentSell}`);
+
+        let newBuyBudget: string | undefined;
+        let newSellBudget: string | undefined;
+
+        if (isOverlapping) {
+          const config = CHAIN_CONFIG[params.chain];
+          const provider = new JsonRpcProvider(config.rpcUrl, config.chainId);
+          const baseDecimals: number = strategy.baseToken === ETH_ADDRESS ? 18 :
+            Number(await new Contract(strategy.baseToken, ERC20_ABI, provider).decimals());
+          const quoteDecimals: number = strategy.quoteToken === ETH_ADDRESS ? 18 :
+            Number(await new Contract(strategy.quoteToken, ERC20_ABI, provider).decimals());
+          const min = strategy.buyPriceLow;
+          const max = strategy.sellPriceHigh;
+          const market = params.market_price!.toString();
+          const spread = params.spread_percentage!.toString();
+
+          if (params.anchor === "buy") {
+            const anchorBudget = currentBuy - params.budget_decrease!;
+            if (anchorBudget < 0) return err(`Cannot withdraw ${params.budget_decrease} - current buy budget is only ${currentBuy}`);
+            const calcSell = calculateOverlappingSellBudget(baseDecimals, quoteDecimals, min, max, market, spread, anchorBudget.toString());
+            newBuyBudget = anchorBudget.toString();
+            newSellBudget = calcSell;
+          } else {
+            const anchorBudget = currentSell - params.budget_decrease!;
+            if (anchorBudget < 0) return err(`Cannot withdraw ${params.budget_decrease} - current sell budget is only ${currentSell}`);
+            const calcBuy = calculateOverlappingBuyBudget(baseDecimals, quoteDecimals, min, max, market, spread, anchorBudget.toString());
+            newSellBudget = anchorBudget.toString();
+            newBuyBudget = calcBuy;
+          }
+        } else {
+          if (params.buy_budget_decrease) {
+            if (params.buy_budget_decrease > currentBuy)
+              return err(`Cannot withdraw ${params.buy_budget_decrease} - current buy budget is only ${currentBuy}`);
+            newBuyBudget = (currentBuy - params.buy_budget_decrease).toString();
+          }
+          if (params.sell_budget_decrease) {
+            if (params.sell_budget_decrease > currentSell)
+              return err(`Cannot withdraw ${params.sell_budget_decrease} - current sell budget is only ${currentSell}`);
+            newSellBudget = (currentSell - params.sell_budget_decrease).toString();
+          }
+        }
+
         const tx = await sdk.updateStrategy(
           params.strategy_id, strategy.encoded,
-          {
-            buyBudget: params.buy_budget_decrease ? (currentBuy - params.buy_budget_decrease).toString() : undefined,
-            sellBudget: params.sell_budget_decrease ? (currentSell - params.sell_budget_decrease).toString() : undefined,
-          },
+          { buyBudget: newBuyBudget, sellBudget: newSellBudget },
           MarginalPriceOptions.maintain,
           MarginalPriceOptions.maintain
         );

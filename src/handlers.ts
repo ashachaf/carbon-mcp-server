@@ -6,7 +6,8 @@ import {
   MarginalPriceOptions,
 } from "@bancor/carbon-sdk/strategy-management";
 import {
-  CHAIN_CONFIG, CHAIN_ENUM, getSDK, checkAllowance, getTokenDecimals, formatTx, ETH_ADDRESS,
+  CHAIN_CONFIG, CHAIN_ENUM, getSDK, checkAllowance, getTokenDecimals,
+  formatTx, ETH_ADDRESS, getStrategiesByOwner,
 } from "./config";
 
 export type Chain = typeof CHAIN_ENUM[number];
@@ -17,8 +18,7 @@ export async function handleGetStrategies(params: {
   wallet_address: string;
   chain: string;
 }) {
-  const sdk = await getSDK(params.chain);
-  const strategies = await sdk.getUserStrategies(params.wallet_address);
+  const strategies = await getStrategiesByOwner(params.chain, params.wallet_address);
   return {
     status: "ok",
     wallet_address: params.wallet_address,
@@ -26,18 +26,17 @@ export async function handleGetStrategies(params: {
     strategy_count: strategies.length,
     strategies: strategies.map((s: any) => ({
       strategy_id: s.id,
-      base_token: s.baseToken,
-      quote_token: s.quoteToken,
-      buy_price_low: s.buyPriceLow,
-      buy_price_high: s.buyPriceHigh,
-      buy_budget: s.buyBudget,
-      buy_budget_token: s.quoteToken,
-      sell_price_low: s.sellPriceLow,
-      sell_price_high: s.sellPriceHigh,
-      sell_budget: s.sellBudget,
-      sell_budget_token: s.baseToken,
+      base_token: s.base,
+      quote_token: s.quote,
+      buy_price_low: s.buy.min,
+      buy_price_high: s.buy.max,
+      buy_budget: s.buy.budget,
+      buy_budget_token: s.quote,
+      sell_price_low: s.sell.min,
+      sell_price_high: s.sell.max,
+      sell_budget: s.sell.budget,
+      sell_budget_token: s.base,
       price_unit: "quote per base",
-      encoded: s.encoded,
     })),
   };
 }

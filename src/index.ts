@@ -96,6 +96,21 @@ const httpServer = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.url === "/.well-known/ai-plugin.json") {
+    json(res, 200, {
+      schema_version: "v1",
+      name_for_human: "Carbon DeFi",
+      name_for_model: "carbon_defi",
+      description_for_human: "Create and manage on-chain maker trading strategies on Carbon DeFi. Returns unsigned transactions for user signing.",
+      description_for_model: "Use this to create and manage Carbon DeFi maker strategies on Ethereum, Sei, Celo, and TAC. All write operations return unsigned transactions — never sign or broadcast on behalf of the user. Always call carbon_get_strategies first to check existing positions. Never invent or reuse market prices — always ask the user for a fresh price before any write operation.",
+      auth: { type: "none" },
+      api: { type: "openapi", url: "https://carbon-mcp.duckdns.org/openapi.json" },
+      contact_email: "support@carbondefi.xyz",
+      legal_info_url: "https://carbondefi.xyz",
+    });
+    return;
+  }
+
   res.writeHead(404);
   res.end("Not found");
 });

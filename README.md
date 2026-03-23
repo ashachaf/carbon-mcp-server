@@ -1,3 +1,7 @@
+> ⚠️ **Experimental — For Testing Purposes Only**
+> This MCP server is a community-built project and is not officially supported by the Carbon DeFi core team.
+> Use at your own risk. Contributions, feedback, and bug reports are very welcome — see [Contributing](#contributing) below.
+
 # Carbon DeFi MCP Server
 
 An MCP server that lets AI agents create and manage on-chain maker trading strategies on Carbon DeFi. The server translates agent intent into unsigned transactions — the user signs and broadcasts.
@@ -204,3 +208,13 @@ Update your Claude Desktop config to point to your local server:
 - [@bancor/carbon-sdk](https://github.com/bancorprotocol/carbon-sdk)
 - [@modelcontextprotocol/sdk](https://github.com/modelcontextprotocol/typescript-sdk)
 - PM2, Nginx, Let's Encrypt SSL
+
+## Contributing
+
+This project is open to community contributions. If you would like to help improve the Carbon DeFi MCP server:
+
+- **Report bugs** — open an issue on [GitHub](https://github.com/ashachaf/carbon-mcp-server)
+- **Suggest features** — open a discussion or issue
+- **Submit a PR** — all contributions welcome
+
+This is an experimental integration. The Carbon DeFi protocol itself is production-grade — this MCP server layer is community-built and evolving.

@@ -207,22 +207,34 @@ export const ERC20_ABI = [
 
 // ─── Allowance check (RPC only — no API equivalent) ──────────────────────────
 
-export async function checkAllowance(chain: string, tokenAddress: string, walletAddress: string, budget: number, customRpc?: string): Promise<string | null> {
-  if (tokenAddress.toLowerCase() === ETH_ADDRESS.toLowerCase()) return null;
+export async function checkAllowance(
+  chain: string, tokenAddress: string, walletAddress: string,
+  budget: number, customRpc?: string
+): Promise<{ note: string; sufficient?: boolean; checked: boolean }> {
+  const config = CHAIN_CONFIG[chain];
+  const generalNote = `Before submitting, ensure the Carbon DeFi controller (${config.carbonControllerAddress}) is approved to spend at least ${budget} of token ${tokenAddress}. Note: USDT on Ethereum requires setting allowance to 0 before increasing.`;
+
+  if (tokenAddress.toLowerCase() === ETH_ADDRESS.toLowerCase()) {
+    return { note: "ETH does not require allowance approval.", sufficient: true, checked: false };
+  }
+
   try {
-    const config = CHAIN_CONFIG[chain];
     const rpcUrl = getRpcUrl(chain, customRpc);
     const provider = new JsonRpcProvider(rpcUrl, config.chainId);
     const token = new Contract(tokenAddress, ERC20_ABI, provider);
     const decimals = await token.decimals();
     const allowance = await token.allowance(walletAddress, config.carbonControllerAddress);
     const required = parseUnits(budget.toString(), decimals);
-    if (allowance < required) {
-      return `Token allowance insufficient. Before submitting, approve the Carbon DeFi controller (${config.carbonControllerAddress}) to spend at least ${budget} tokens on contract ${tokenAddress}. Note: USDT on Ethereum requires setting allowance to 0 before increasing.`;
-    }
-    return null;
-  } catch (e: any) {
-    return `Could not check token allowance: ${e.message}`;
+    const sufficient = allowance >= required;
+    return {
+      note: sufficient
+        ? `Allowance confirmed sufficient for ${budget} of token ${tokenAddress}.`
+        : `Allowance insufficient. ${generalNote}`,
+      sufficient,
+      checked: true,
+    };
+  } catch {
+    return { note: generalNote, checked: false };
   }
 }
 

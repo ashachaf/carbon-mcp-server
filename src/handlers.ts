@@ -44,7 +44,7 @@ export async function handleGetStrategies(params: {
 // ─── Create Limit Order ──────────────────────────────────────────────────────
 
 export async function handleCreateLimitOrder(params: {
-  wallet_address: string; chain: string; base_token: string; quote_token: string;
+  wallet_address: string; chain: string; rpc_url?: string; base_token: string; quote_token: string;
   direction: "buy" | "sell"; price: number; budget: number; market_price?: number;
 }) {
   const warnings: string[] = [];
@@ -55,8 +55,7 @@ export async function handleCreateLimitOrder(params: {
       warnings.push(`Sell price (${params.price}) is below market (${params.market_price}) - order may fill immediately.`);
   }
   const checkToken = params.direction === "buy" ? params.quote_token : params.base_token;
-  const aw = await checkAllowance(params.chain, checkToken, params.wallet_address, params.budget);
-  if (aw) warnings.push(aw);
+  warnings.push((await checkAllowance(params.chain, checkToken, params.wallet_address, params.budget, params.rpc_url)).note);
   const sdk = await getSDK(params.chain);
   const isBuy = params.direction === "buy";
   const p = params.price.toString();
@@ -76,7 +75,7 @@ export async function handleCreateLimitOrder(params: {
 // ─── Create Range Order ──────────────────────────────────────────────────────
 
 export async function handleCreateRangeOrder(params: {
-  wallet_address: string; chain: string; base_token: string; quote_token: string;
+  wallet_address: string; chain: string; rpc_url?: string; base_token: string; quote_token: string;
   direction: "buy" | "sell"; price_low: number; price_high: number; budget: number; market_price?: number;
 }) {
   if (params.price_low >= params.price_high) throw new Error("price_low must be less than price_high");
@@ -88,8 +87,7 @@ export async function handleCreateRangeOrder(params: {
       warnings.push(`Sell range bottom (${params.price_low}) is below market (${params.market_price}).`);
   }
   const checkToken = params.direction === "buy" ? params.quote_token : params.base_token;
-  const aw = await checkAllowance(params.chain, checkToken, params.wallet_address, params.budget);
-  if (aw) warnings.push(aw);
+  warnings.push((await checkAllowance(params.chain, checkToken, params.wallet_address, params.budget, params.rpc_url)).note);
   const sdk = await getSDK(params.chain);
   const isBuy = params.direction === "buy";
   const lo = params.price_low.toString(), hi = params.price_high.toString(), b = params.budget.toString();
@@ -108,7 +106,7 @@ export async function handleCreateRangeOrder(params: {
 // ─── Create Recurring Strategy ───────────────────────────────────────────────
 
 export async function handleCreateRecurringStrategy(params: {
-  wallet_address: string; chain: string; base_token: string; quote_token: string;
+  wallet_address: string; chain: string; rpc_url?: string; base_token: string; quote_token: string;
   buy_price_low: number; buy_price_high: number; buy_price_marginal?: number; buy_budget: number;
   sell_price_low: number; sell_price_high: number; sell_budget: number; market_price?: number;
 }) {
@@ -125,12 +123,10 @@ export async function handleCreateRecurringStrategy(params: {
       warnings.push(`Sell range bottom (${params.sell_price_low}) is below market (${params.market_price}).`);
   }
   if (params.buy_budget > 0) {
-    const aw = await checkAllowance(params.chain, params.quote_token, params.wallet_address, params.buy_budget);
-    if (aw) warnings.push(aw);
+    warnings.push((await checkAllowance(params.chain, params.quote_token, params.wallet_address, params.buy_budget, params.rpc_url)).note);
   }
   if (params.sell_budget > 0) {
-    const aw = await checkAllowance(params.chain, params.base_token, params.wallet_address, params.sell_budget);
-    if (aw) warnings.push(aw);
+    warnings.push((await checkAllowance(params.chain, params.base_token, params.wallet_address, params.sell_budget, params.rpc_url)).note);
   }
   const sdk = await getSDK(params.chain);
   const tx = await sdk.createBuySellStrategy(
@@ -158,7 +154,7 @@ export async function handleCreateRecurringStrategy(params: {
 // ─── Create Concentrated Strategy ────────────────────────────────────────────
 
 export async function handleCreateConcentratedStrategy(params: {
-  wallet_address: string; chain: string; base_token: string; quote_token: string;
+  wallet_address: string; chain: string; rpc_url?: string; base_token: string; quote_token: string;
   price_low: number; price_high: number; spread_percentage: number;
   anchor: "buy" | "sell"; budget: number; market_price: number;
 }) {
@@ -167,8 +163,7 @@ export async function handleCreateConcentratedStrategy(params: {
     throw new Error(`Market price (${params.market_price}) must be within range [${params.price_low}, ${params.price_high}].`);
   const warnings: string[] = [];
   const checkToken = params.anchor === "buy" ? params.quote_token : params.base_token;
-  const aw = await checkAllowance(params.chain, checkToken, params.wallet_address, params.budget);
-  if (aw) warnings.push(aw);
+  warnings.push((await checkAllowance(params.chain, checkToken, params.wallet_address, params.budget, params.rpc_url)).note);
   const sdk = await getSDK(params.chain);
   const baseDecimals = await getTokenDecimals(params.chain, params.base_token);
   const quoteDecimals = await getTokenDecimals(params.chain, params.quote_token);
@@ -198,13 +193,12 @@ export async function handleCreateConcentratedStrategy(params: {
 // ─── Create Full Range Strategy ───────────────────────────────────────────────
 
 export async function handleCreateFullRangeStrategy(params: {
-  wallet_address: string; chain: string; base_token: string; quote_token: string;
+  wallet_address: string; chain: string; rpc_url?: string; base_token: string; quote_token: string;
   spread_percentage: number; anchor: "buy" | "sell"; budget: number; market_price: number;
 }) {
   const warnings: string[] = [];
   const checkToken = params.anchor === "buy" ? params.quote_token : params.base_token;
-  const aw = await checkAllowance(params.chain, checkToken, params.wallet_address, params.budget);
-  if (aw) warnings.push(aw);
+  warnings.push((await checkAllowance(params.chain, checkToken, params.wallet_address, params.budget, params.rpc_url)).note);
   const sdk = await getSDK(params.chain);
   const baseDecimals = await getTokenDecimals(params.chain, params.base_token);
   const quoteDecimals = await getTokenDecimals(params.chain, params.quote_token);
@@ -237,7 +231,7 @@ export async function handleCreateFullRangeStrategy(params: {
 // ─── Reprice Strategy ─────────────────────────────────────────────────────────
 
 export async function handleRepriceStrategy(params: {
-  wallet_address: string; chain: string; strategy_id: string;
+  wallet_address: string; chain: string; rpc_url?: string; strategy_id: string;
   buy_price_low?: number; buy_price_high?: number; sell_price_low?: number; sell_price_high?: number;
 }) {
   const sdk = await getSDK(params.chain);
@@ -262,7 +256,7 @@ export async function handleRepriceStrategy(params: {
 // ─── Edit Strategy ────────────────────────────────────────────────────────────
 
 export async function handleEditStrategy(params: {
-  wallet_address: string; chain: string; strategy_id: string;
+  wallet_address: string; chain: string; rpc_url?: string; strategy_id: string;
   buy_price_low?: number; buy_price_high?: number; buy_budget?: number;
   sell_price_low?: number; sell_price_high?: number; sell_budget?: number; market_price?: number;
 }) {
@@ -276,12 +270,10 @@ export async function handleEditStrategy(params: {
   const sdk = await getSDK(params.chain);
   const strategy = await sdk.getStrategyById(params.strategy_id);
   if (params.buy_budget !== undefined) {
-    const aw = await checkAllowance(params.chain, strategy.quoteToken, params.wallet_address, params.buy_budget);
-    if (aw) warnings.push(aw);
+    warnings.push((await checkAllowance(params.chain, strategy.quoteToken, params.wallet_address, params.buy_budget, params.rpc_url)).note);
   }
   if (params.sell_budget !== undefined) {
-    const aw = await checkAllowance(params.chain, strategy.baseToken, params.wallet_address, params.sell_budget);
-    if (aw) warnings.push(aw);
+    warnings.push((await checkAllowance(params.chain, strategy.baseToken, params.wallet_address, params.sell_budget, params.rpc_url)).note);
   }
   const tx = await sdk.updateStrategy(params.strategy_id, strategy.encoded, {
     buyPriceLow: params.buy_price_low?.toString(), buyPriceHigh: params.buy_price_high?.toString(),
@@ -294,7 +286,7 @@ export async function handleEditStrategy(params: {
 // ─── Deposit Budget ───────────────────────────────────────────────────────────
 
 export async function handleDepositBudget(params: {
-  wallet_address: string; chain: string; strategy_id: string;
+  wallet_address: string; chain: string; rpc_url?: string; strategy_id: string;
   buy_budget_increase?: number; sell_budget_increase?: number;
   anchor?: "buy" | "sell"; budget_increase?: number; market_price?: number; spread_percentage?: number;
 }) {
@@ -315,24 +307,20 @@ export async function handleDepositBudget(params: {
     if (params.anchor === "buy") {
       newBuyBudget = (currentBuy + params.budget_increase!).toString();
       newSellBudget = calculateOverlappingSellBudget(baseDecimals, quoteDecimals, min, max, market, spread, newBuyBudget);
-      const aw = await checkAllowance(params.chain, strategy.quoteToken, params.wallet_address, params.budget_increase!);
-      if (aw) warnings.push(aw);
+      warnings.push((await checkAllowance(params.chain, strategy.quoteToken, params.wallet_address, params.budget_increase!, params.rpc_url)).note);
     } else {
       newSellBudget = (currentSell + params.budget_increase!).toString();
       newBuyBudget = calculateOverlappingBuyBudget(baseDecimals, quoteDecimals, min, max, market, spread, newSellBudget);
-      const aw = await checkAllowance(params.chain, strategy.baseToken, params.wallet_address, params.budget_increase!);
-      if (aw) warnings.push(aw);
+      warnings.push((await checkAllowance(params.chain, strategy.baseToken, params.wallet_address, params.budget_increase!, params.rpc_url)).note);
     }
   } else {
     if (params.buy_budget_increase) {
       newBuyBudget = (currentBuy + params.buy_budget_increase).toString();
-      const aw = await checkAllowance(params.chain, strategy.quoteToken, params.wallet_address, params.buy_budget_increase);
-      if (aw) warnings.push(aw);
+      warnings.push((await checkAllowance(params.chain, strategy.quoteToken, params.wallet_address, params.buy_budget_increase, params.rpc_url)).note);
     }
     if (params.sell_budget_increase) {
       newSellBudget = (currentSell + params.sell_budget_increase).toString();
-      const aw = await checkAllowance(params.chain, strategy.baseToken, params.wallet_address, params.sell_budget_increase);
-      if (aw) warnings.push(aw);
+      warnings.push((await checkAllowance(params.chain, strategy.baseToken, params.wallet_address, params.sell_budget_increase, params.rpc_url)).note);
     }
   }
   const tx = await sdk.updateStrategy(params.strategy_id, strategy.encoded,
@@ -344,7 +332,7 @@ export async function handleDepositBudget(params: {
 // ─── Withdraw Budget ──────────────────────────────────────────────────────────
 
 export async function handleWithdrawBudget(params: {
-  wallet_address: string; chain: string; strategy_id: string;
+  wallet_address: string; chain: string; rpc_url?: string; strategy_id: string;
   buy_budget_decrease?: number; sell_budget_decrease?: number;
   anchor?: "buy" | "sell"; budget_decrease?: number; market_price?: number; spread_percentage?: number;
 }) {
@@ -391,7 +379,7 @@ export async function handleWithdrawBudget(params: {
 // ─── Pause Strategy ───────────────────────────────────────────────────────────
 
 export async function handlePauseStrategy(params: {
-  wallet_address: string; chain: string; strategy_id: string;
+  wallet_address: string; chain: string; rpc_url?: string; strategy_id: string;
 }) {
   const sdk = await getSDK(params.chain);
   const strategy = await sdk.getStrategyById(params.strategy_id);
@@ -415,7 +403,7 @@ export async function handlePauseStrategy(params: {
 // ─── Resume Strategy ──────────────────────────────────────────────────────────
 
 export async function handleResumeStrategy(params: {
-  wallet_address: string; chain: string; strategy_id: string;
+  wallet_address: string; chain: string; rpc_url?: string; strategy_id: string;
   buy_price_low?: number; buy_price_high?: number; sell_price_low?: number; sell_price_high?: number;
   market_price: number;
 }) {
@@ -442,7 +430,7 @@ export async function handleResumeStrategy(params: {
 // ─── Delete Strategy ──────────────────────────────────────────────────────────
 
 export async function handleDeleteStrategy(params: {
-  wallet_address: string; chain: string; strategy_id: string;
+  wallet_address: string; chain: string; rpc_url?: string; strategy_id: string;
 }) {
   const sdk = await getSDK(params.chain);
   const tx = await sdk.deleteStrategy(params.strategy_id);
